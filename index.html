@@ -41,6 +41,9 @@ button,input,select{font:inherit;color:inherit}
 .title h1{font-family:var(--font-doc);font-size:26px;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
 .title .sub{color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
 .plate{font-weight:600;font-size:12px;letter-spacing:.06em;border:1.5px solid var(--ink);border-radius:4px;padding:1px 7px;color:var(--ink);font-variant-numeric:tabular-nums}
+.vehsel{font-weight:600;font-size:12px;letter-spacing:.06em;border:1.5px solid var(--ink);border-radius:4px;padding:1px 4px;background:var(--surface);color:var(--ink);font-variant-numeric:tabular-nums;cursor:pointer;max-width:100%}
+.vehrow{display:flex;gap:8px;flex-wrap:wrap}
+.vehrow .btn{flex:1;min-width:0}
 .monthbar{display:flex;align-items:center;gap:6px}
 .monthbar .label{min-width:128px;text-align:center;font-weight:600;font-size:16px;font-variant-numeric:tabular-nums}
 .iconbtn{width:38px;height:38px;border:1px solid var(--line);background:var(--surface);border-radius:8px;cursor:pointer;display:grid;place-items:center}
@@ -121,7 +124,7 @@ details.card[open] summary{margin-bottom:12px}
   <header class="top">
     <div class="title">
       <h1>Bảng kê lộ trình xe</h1>
-      <div class="sub"><span class="plate" id="plate"></span><span id="unitline"></span></div>
+      <div class="sub"><select class="vehsel" id="vehSel" aria-label="Chọn xe"></select><span id="unitline"></span></div>
     </div>
     <div class="monthbar" role="group" aria-label="Chọn tháng">
       <button class="iconbtn" id="prev" type="button" aria-label="Tháng trước"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 3 5 8l5 5"/></svg></button>
@@ -167,18 +170,20 @@ details.card[open] summary{margin-bottom:12px}
         <h2>Xuất bảng kê</h2>
         <div style="display:flex;flex-direction:column;gap:10px">
           <button class="btn primary" id="exportBtn" type="button">Xuất Excel</button>
+          <button class="btn" id="exportAllBtn" type="button" hidden>Xuất tất cả xe</button>
           <p class="hint" id="exportHint"></p>
         </div>
       </section>
 
       <details class="card" id="settings">
         <summary>Thông tin bảng kê</summary>
+        <div class="vehrow" style="margin-bottom:12px"><button class="btn" id="addVeh" type="button">+ Thêm xe</button><button class="btn warn" id="delVeh" type="button">Xóa xe này</button></div>
         <form id="cfgForm" onsubmit="return false" style="gap:12px">
           <div class="field"><label for="cUnitTop">Cơ quan cấp trên</label><input id="cUnitTop" type="text"></div>
           <div class="field"><label for="cUnit">Đơn vị</label><input id="cUnit" type="text"></div>
           <div class="row2">
-            <div class="field"><label for="cPlate">Biển số xe</label><input id="cPlate" type="text"></div>
-            <div class="field"><label for="cRate">Định mức (l/100km)</label><input id="cRate" type="text" inputmode="decimal"></div>
+            <div class="field"><label for="cPlate">Biển số xe đang chọn</label><input id="cPlate" type="text"></div>
+            <div class="field"><label for="cRate">Định mức xe này (l/100km)</label><input id="cRate" type="text" inputmode="decimal"></div>
           </div>
           <div class="field"><label for="cPlace">Địa danh (dòng ngày ký)</label><input id="cPlace" type="text"></div>
           <div class="names">
@@ -266,12 +271,22 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 //# sourceMappingURL=exceljs.min.js.map</script>
 <script>
 /* ---------- Xuất Excel theo thể thức mẫu ---------- */
-function buildWorkbook(ExcelJS, cfg, entries, ym) {
-  const [Y, M] = ym.split('-').map(Number);
-  const lastDay = new Date(Y, M, 0).getDate();
+function buildWorkbook(ExcelJS, cfg, sheets, ym) {
   const wb = new ExcelJS.Workbook();
   wb.creator = cfg.unit || 'Bảng kê lộ trình xe';
-  const ws = wb.addWorksheet('T' + String(M).padStart(2, '0') + '-' + Y);
+  const used = new Set();
+  sheets.forEach((sh, i) => {
+    let nm = (sh.plate.replace(/[\[\]:*?\/\\]/g, '') + ' T' + ym.slice(5) + '-' + ym.slice(0, 4)).slice(0, 31);
+    if (used.has(nm)) nm = nm.slice(0, 28) + ' ' + (i + 1);
+    used.add(nm);
+    addSheet(wb, wb.addWorksheet(nm), cfg, sh, ym);
+  });
+  return wb;
+}
+function addSheet(wb, ws, cfg0, sh, ym) {
+  const cfg = Object.assign({}, cfg0, { plate: sh.plate, rate: sh.rate }), entries = sh.entries;
+  const [Y, M] = ym.split('-').map(Number);
+  const lastDay = new Date(Y, M, 0).getDate();
   ws.columns = [{ width: 15.875 }, { width: 35.25 }, { width: 12 }, { width: 20.875 }, { width: 25.75 }];
   const thin = { style: 'thin' };
   const box = { top: thin, left: thin, bottom: thin, right: thin };
@@ -350,13 +365,12 @@ function buildWorkbook(ExcelJS, cfg, entries, ym) {
     horizontalCentered: true, printArea: `A1:E${T + 10}`, printTitlesRow: '6:6',
     margins: { left: 0.7, right: 0.7, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 }
   };
-  return wb;
 }
 </script>
 
 <script>
 /* ---------- Dữ liệu và lưu trữ ---------- */
-const DEF = { unitTop: 'CÔNG AN THÀNH PHỐ HUẾ', unit: 'PHÒNG PC07', plate: '75A-003.25', rate: 17.64,
+const DEF = { unitTop: 'CÔNG AN THÀNH PHỐ HUẾ', unit: 'PHÒNG PC07', vehicles: [{ id: 'v1', plate: '75A-003.25', rate: 17.64 }], active: 'v1',
   place: 'Thành phố Huế', names: ['', 'Hoàng Tiến Dũng', 'Nguyễn Văn Chiến', 'Trương Tấn Sang'] };
 const $ = s => document.querySelector(s);
 let cfg = JSON.parse(JSON.stringify(DEF));
@@ -375,6 +389,17 @@ const rateStr = r => String(r).replace('.', ',');
 const km = n => n.toLocaleString('vi-VN');
 const clone = o => JSON.parse(JSON.stringify(o));
 
+const veh = () => cfg.vehicles.find(v => v.id === cfg.active) || cfg.vehicles[0];
+const mkey = (vid, ym) => vid === 'v1' ? ym : vid + '_' + ym;
+function normCfg(c) {
+  c = c || {};
+  cfg = Object.assign(clone(DEF), c);
+  if (!Array.isArray(cfg.names)) cfg.names = DEF.names.slice();
+  cfg.names = [0, 1, 2, 3].map(i => (c.names && c.names[i] != null) ? c.names[i] : DEF.names[i]);
+  if (!Array.isArray(c.vehicles) || !c.vehicles.length) cfg.vehicles = [{ id: 'v1', plate: c.plate || DEF.vehicles[0].plate, rate: c.rate || DEF.vehicles[0].rate }];
+  if (!cfg.vehicles.some(v => v.id === cfg.active)) cfg.active = cfg.vehicles[0].id;
+  delete cfg.plate; delete cfg.rate;
+}
 function lsGet(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
@@ -385,16 +410,16 @@ function queueWrite(fn) {
 async function loadCfg() {
   let c = lsGet('bk:cfg');
   if (db) { try { const s = await db.doc('settings/main').get(); if (s.exists) { c = clone(s.data()); lsSet('bk:cfg', c); } } catch (e) {} }
-  cfg = Object.assign(clone(DEF), c || {});
-  cfg.names = [0, 1, 2, 3].map(i => (c && c.names && c.names[i] != null) ? c.names[i] : DEF.names[i]);
+  normCfg(c);
 }
 function saveCfg() { lsSet('bk:cfg', cfg); if (db) { const body = clone(cfg); queueWrite(() => db.doc('settings/main').set(body)); } }
-async function loadMonth(ym) {
-  let list = lsGet('bk:m:' + ym);
-  if (db) { try { const s = await db.doc('months/' + ym).get(); if (s.exists) { list = clone(s.data().entries || []); lsSet('bk:m:' + ym, list); } } catch (e) {} }
+async function loadMonth(ym, vid = cfg.active) {
+  const k = mkey(vid, ym);
+  let list = lsGet('bk:m:' + k);
+  if (db) { try { const s = await db.doc('months/' + k).get(); if (s.exists) { list = clone(s.data().entries || []); lsSet('bk:m:' + k, list); } } catch (e) {} }
   return list || [];
 }
-function saveMonth(ym, list) { lsSet('bk:m:' + ym, list); if (db) { const body = { entries: clone(list) }; queueWrite(() => db.doc('months/' + ym).set(body)); } }
+function saveMonth(ym, list, vid = cfg.active) { const k = mkey(vid, ym); lsSet('bk:m:' + k, list); if (db) { const body = { entries: clone(list) }; queueWrite(() => db.doc('months/' + k).set(body)); } }
 function sortEntries() { entries.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)); }
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 
@@ -403,17 +428,20 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = fal
 
 /* ---------- Hiển thị ---------- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-function totals() { const t = entries.reduce((a, e) => a + e.km, 0); return { km: t, fuel: Math.round(t * cfg.rate / 100) }; }
+function totals() { const t = entries.reduce((a, e) => a + e.km, 0); return { km: t, fuel: Math.round(t * veh().rate / 100) }; }
 
 function render() {
-  $('#plate').textContent = cfg.plate;
+  $('#vehSel').innerHTML = cfg.vehicles.map(v => `<option value="${esc(v.id)}"${v.id === cfg.active ? ' selected' : ''}>${esc(v.plate)}</option>`).join('');
+  $('#delVeh').disabled = cfg.vehicles.length < 2;
+  $('#exportAllBtn').hidden = cfg.vehicles.length < 2;
+  $('#exportAllBtn').textContent = `Xuất tất cả xe (${cfg.vehicles.length})`;
   $('#unitline').textContent = `${cfg.unit} · ${cfg.unitTop}`;
   $('#monthLabel').textContent = monthLabel(viewYm);
-  $('#pUnit').innerHTML = `${esc(cfg.unitTop)}<br><b>${esc(cfg.unit)}</b> · ${esc(cfg.plate)}`;
+  $('#pUnit').innerHTML = `${esc(cfg.unitTop)}<br><b>${esc(cfg.unit)}</b> · ${esc(veh().plate)}`;
   $('#pMonth').textContent = monthLabel(viewYm).replace('/', ' năm ');
   const t = totals();
   $('#sKm').textContent = km(t.km); $('#sFuel').textContent = km(t.fuel); $('#sCount').textContent = entries.length;
-  $('#sFuelK').textContent = `Nhiên liệu (lít) · ${rateStr(cfg.rate)}l/100km`;
+  $('#sFuelK').textContent = `Nhiên liệu (lít) · ${rateStr(veh().rate)}l/100km`;
 
   const rows = $('#rows');
   rows.innerHTML = entries.map(e => `<tr class="${e.id === editingId ? 'sel' : ''}">
@@ -421,7 +449,7 @@ function render() {
     <td class="act"><button class="rowbtn" data-edit="${e.id}" type="button">Sửa</button><button class="rowbtn del ${delArmed === e.id ? 'confirm' : ''}" data-del="${e.id}" type="button">${delArmed === e.id ? 'Xác nhận xóa' : 'Xóa'}</button></td></tr>`).join('');
   $('#empty').hidden = entries.length > 0;
   $('#foot').innerHTML = entries.length ? `<tr><td class="lab" colspan="2">Tổng cộng</td><td class="n">${km(t.km)}</td><td></td><td style="border:none"></td></tr>
-    <tr><td class="lab" colspan="2">Nhiên liệu tiêu thụ (${rateStr(cfg.rate)}l/100km)</td><td class="n">${km(t.fuel)}</td><td></td><td style="border:none"></td></tr>` : '';
+    <tr><td class="lab" colspan="2">Nhiên liệu tiêu thụ (${rateStr(veh().rate)}l/100km)</td><td class="n">${km(t.fuel)}</td><td></td><td style="border:none"></td></tr>` : '';
 
   const last = lastDayOf(viewYm), [y, m] = viewYm.split('-');
   const signStr = `${cfg.place}, ngày ${last} tháng ${+m} năm ${y}`;
@@ -435,7 +463,7 @@ function render() {
   const banner = $('#banner');
   banner.hidden = !isLast;
   if (isLast) $('#bannerText').textContent = `Hôm nay là ngày cuối tháng. Hãy kiểm tra số liệu rồi xuất bảng kê ${monthLabel(viewYm).toLowerCase()}.`;
-  $('#bannerBtn').disabled = entries.length === 0;
+  $('#bannerBtn').disabled = entries.length === 0 && cfg.vehicles.length < 2;
 
   $('#formCard').classList.toggle('editing', !!editingId);
   $('#formTitle').textContent = editingId ? 'Sửa lộ trình' : 'Nhập lộ trình';
@@ -449,15 +477,15 @@ function fillSuggest() {
   $('#suggest').innerHTML = [...set].slice(-60).map(s => `<option value="${esc(s)}">`).join('');
 }
 function fillCfgForm() {
-  $('#cUnitTop').value = cfg.unitTop; $('#cUnit').value = cfg.unit; $('#cPlate').value = cfg.plate;
-  $('#cRate').value = rateStr(cfg.rate); $('#cPlace').value = cfg.place;
+  $('#cUnitTop').value = cfg.unitTop; $('#cUnit').value = cfg.unit; $('#cPlate').value = veh().plate;
+  $('#cRate').value = rateStr(veh().rate); $('#cPlace').value = cfg.place;
   cfg.names.forEach((n, i) => $('#cN' + i).value = n);
 }
 
 async function gotoMonth(ym) {
   viewYm = ym; editingId = null; delArmed = null;
   const tok = ++loadToken;
-  entries = lsGet('bk:m:' + ym) || [];
+  entries = lsGet('bk:m:' + mkey(cfg.active, ym)) || [];
   sortEntries(); render();
   const list = await loadMonth(ym);
   if (tok !== loadToken) return;
@@ -517,26 +545,56 @@ $('#rows').addEventListener('click', ev => {
 $('#prev').addEventListener('click', () => gotoMonth(shiftMonth(viewYm, -1)));
 $('#next').addEventListener('click', () => gotoMonth(shiftMonth(viewYm, 1)));
 
-['cUnitTop:unitTop', 'cUnit:unit', 'cPlate:plate', 'cPlace:place'].forEach(p => {
+['cUnitTop:unitTop', 'cUnit:unit', 'cPlace:place'].forEach(p => {
   const [id, key] = p.split(':');
   $('#' + id).addEventListener('change', e => { cfg[key] = e.target.value.trim() || DEF[key]; saveCfg(); render(); });
 });
+$('#cPlate').addEventListener('change', e => { veh().plate = e.target.value.trim() || 'Xe'; e.target.value = veh().plate; saveCfg(); render(); });
 $('#cRate').addEventListener('change', e => {
   const v = parseFloat(e.target.value.replace(',', '.'));
-  if (Number.isFinite(v) && v > 0) { cfg.rate = v; saveCfg(); } else toast('Định mức phải là số lớn hơn 0.');
-  e.target.value = rateStr(cfg.rate); render();
+  if (Number.isFinite(v) && v > 0) { veh().rate = v; saveCfg(); } else toast('Định mức phải là số lớn hơn 0.');
+  e.target.value = rateStr(veh().rate); render();
+});
+async function switchVeh(id) { cfg.active = id; saveCfg(); resetForm(true); fillCfgForm(); await gotoMonth(viewYm); }
+$('#vehSel').addEventListener('change', e => switchVeh(e.target.value));
+$('#addVeh').addEventListener('click', async () => {
+  const id = 'v' + Date.now().toString(36);
+  cfg.vehicles.push({ id, plate: 'Xe ' + (cfg.vehicles.length + 1), rate: veh().rate });
+  await switchVeh(id);
+  $('#settings').open = true; $('#cPlate').focus(); $('#cPlate').select();
+  toast('Đã thêm xe. Nhập biển số và định mức.');
+});
+let delVehArmed = false;
+$('#delVeh').addEventListener('click', async () => {
+  const b = $('#delVeh');
+  if (cfg.vehicles.length < 2) return;
+  if (!delVehArmed) { delVehArmed = true; b.textContent = 'Xác nhận xóa xe và dữ liệu'; setTimeout(() => { delVehArmed = false; b.textContent = 'Xóa xe này'; }, 4000); return; }
+  delVehArmed = false; b.textContent = 'Xóa xe này';
+  const gone = cfg.active;
+  try { Object.keys(localStorage).filter(k => k.startsWith('bk:m:') && (gone === 'v1' ? /^bk:m:\d{4}-\d{2}$/.test(k) : k.startsWith('bk:m:' + gone + '_'))).forEach(k => localStorage.removeItem(k)); } catch (e) {}
+  cfg.vehicles = cfg.vehicles.filter(v => v.id !== gone);
+  await switchVeh(cfg.vehicles[0].id);
+  toast('Đã xóa xe.');
 });
 [0, 1, 2, 3].forEach(i => $('#cN' + i).addEventListener('change', e => { cfg.names[i] = e.target.value.trim(); saveCfg(); }));
 
-async function doExport() {
-  if (!entries.length) return;
+async function doExport(all) {
+  if (!all && !entries.length) return;
   if (!dl) { toast('Chế độ xem này không cho tải file. Hãy mở trang trong ứng dụng Claude.'); return; }
   if (typeof ExcelJS === 'undefined') { toast('Chưa tải được thư viện Excel. Kiểm tra kết nối mạng rồi thử lại.'); return; }
   try {
-    const wb = buildWorkbook(ExcelJS, cfg, entries, viewYm);
+    const sheets = [];
+    if (all) {
+      for (const v of cfg.vehicles) {
+        const list = v.id === cfg.active ? entries.slice() : await loadMonth(viewYm, v.id);
+        if (list.length) sheets.push({ plate: v.plate, rate: v.rate, entries: list.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)) });
+      }
+      if (!sheets.length) { toast('Chưa có lộ trình nào của các xe trong tháng này.'); return; }
+    } else sheets.push({ plate: veh().plate, rate: veh().rate, entries });
+    const wb = buildWorkbook(ExcelJS, cfg, sheets, viewYm);
     const buf = await wb.xlsx.writeBuffer();
     const [y, m] = viewYm.split('-');
-    const name = `Bang_ke_lo_trinh_${cfg.plate.replace(/[^\w.-]+/g, '_')}_${m}-${y}.xlsx`;
+    const name = `Bang_ke_lo_trinh_${all ? 'tat_ca_xe' : veh().plate.replace(/[^\w.-]+/g, '_')}_${m}-${y}.xlsx`;
     await dl.save({ filename: name, data: new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }) });
     toast('Đã xuất ' + name);
   } catch (e) {
@@ -544,13 +602,14 @@ async function doExport() {
     toast('Chưa xuất được file. Thử lại sau ít giây.');
   }
 }
-$('#exportBtn').addEventListener('click', doExport);
-$('#bannerBtn').addEventListener('click', doExport);
+$('#exportBtn').addEventListener('click', () => doExport(false));
+$('#exportAllBtn').addEventListener('click', () => doExport(true));
+$('#bannerBtn').addEventListener('click', () => doExport(cfg.vehicles.length > 1));
 
 $('#backupBtn').addEventListener('click', async () => {
   const months = {};
   try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('bk:m:')) months[k.slice(5)] = lsGet(k); } } catch (e) {}
-  months[viewYm] = entries;
+  months[mkey(cfg.active, viewYm)] = entries;
   if (!dl) { toast('Chế độ xem này không cho tải file.'); return; }
   try { await dl.save({ filename: `sao-luu-bang-ke-${todayStr()}.json`, data: JSON.stringify({ cfg, months }, null, 1) }); toast('Đã sao lưu.'); } catch (e) { if (!e || e.code !== 'declined') toast('Chưa sao lưu được.'); }
 });
@@ -559,8 +618,8 @@ $('#restoreFile').addEventListener('change', async ev => {
   const f = ev.target.files[0]; if (!f) return;
   try {
     const data = JSON.parse(await f.text());
-    if (data.cfg) { cfg = Object.assign(clone(DEF), data.cfg); saveCfg(); fillCfgForm(); }
-    Object.entries(data.months || {}).forEach(([ym, list]) => { if (/^\d{4}-\d{2}$/.test(ym) && Array.isArray(list)) saveMonth(ym, list); });
+    if (data.cfg) { normCfg(data.cfg); saveCfg(); fillCfgForm(); }
+    Object.entries(data.months || {}).forEach(([ym, list]) => { if (/^(v\w+_)?\d{4}-\d{2}$/.test(ym) && Array.isArray(list)) saveMonth(ym, list); });
     await gotoMonth(viewYm); toast('Đã khôi phục dữ liệu.');
   } catch (e) { toast('File sao lưu không hợp lệ.'); }
   ev.target.value = '';
@@ -569,8 +628,7 @@ $('#restoreFile').addEventListener('change', async ev => {
 /* ---------- Khởi động ---------- */
 (async function start() {
   $('#fDate').value = todayStr();
-  cfg = Object.assign(clone(DEF), lsGet('bk:cfg') || {});
-  if (!Array.isArray(cfg.names)) cfg.names = DEF.names.slice();
+  normCfg(lsGet('bk:cfg'));
   fillCfgForm();
   await gotoMonth(ymOf(todayStr()));
   dl = { save: async ({ filename, data }) => {
